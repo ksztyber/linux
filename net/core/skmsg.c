@@ -518,7 +518,8 @@ static struct sk_msg *sk_psock_create_ingress_msg(struct sock *sk,
 static int sk_psock_skb_ingress_enqueue(struct sk_buff *skb,
 					struct sk_psock *psock,
 					struct sock *sk,
-					struct sk_msg *msg)
+					struct sk_msg *msg,
+					u32 off, u32 len)
 {
 	int num_sge, copied;
 
@@ -529,13 +530,13 @@ static int sk_psock_skb_ingress_enqueue(struct sk_buff *skb,
 	 */
 	if (skb_linearize(skb))
 		return -EAGAIN;
-	num_sge = skb_to_sgvec(skb, msg->sg.data, 0, skb->len);
+	num_sge = skb_to_sgvec(skb, msg->sg.data, off, len);
 	if (unlikely(num_sge < 0)) {
 		kfree(msg);
 		return num_sge;
 	}
 
-	copied = skb->len;
+	copied = len;
 	msg->sg.start = 0;
 	msg->sg.size = copied;
 	msg->sg.end = num_sge;
@@ -546,9 +547,11 @@ static int sk_psock_skb_ingress_enqueue(struct sk_buff *skb,
 	return copied;
 }
 
-static int sk_psock_skb_ingress_self(struct sk_psock *psock, struct sk_buff *skb);
+static int sk_psock_skb_ingress_self(struct sk_psock *psock, struct sk_buff *skb,
+				     u32 off, u32 len);
 
-static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
+static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb,
+				u32 off, u32 len)
 {
 	struct sock *sk = psock->sk;
 	struct sk_msg *msg;
@@ -558,7 +561,7 @@ static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 	 * correctly.
 	 */
 	if (unlikely(skb->sk == sk))
-		return sk_psock_skb_ingress_self(psock, skb);
+		return sk_psock_skb_ingress_self(psock, skb, off, len);
 	msg = sk_psock_create_ingress_msg(sk, skb);
 	if (!msg)
 		return -EAGAIN;
@@ -570,14 +573,15 @@ static int sk_psock_skb_ingress(struct sk_psock *psock, struct sk_buff *skb)
 	 * into user buffers.
 	 */
 	skb_set_owner_r(skb, sk);
-	return sk_psock_skb_ingress_enqueue(skb, psock, sk, msg);
+	return sk_psock_skb_ingress_enqueue(skb, psock, sk, msg, off, len);
 }
 
 /* Puts an skb on the ingress queue of the socket already assigned to the
  * skb. In this case we do not need to check memory limits or skb_set_owner_r
  * because the skb is already accounted for here.
  */
-static int sk_psock_skb_ingress_self(struct sk_psock *psock, struct sk_buff *skb)
+static int sk_psock_skb_ingress_self(struct sk_psock *psock, struct sk_buff *skb,
+				     u32 off, u32 len)
 {
 	struct sk_msg *msg = kzalloc(sizeof(*msg), __GFP_NOWARN | GFP_ATOMIC);
 	struct sock *sk = psock->sk;
@@ -586,7 +590,7 @@ static int sk_psock_skb_ingress_self(struct sk_psock *psock, struct sk_buff *skb
 		return -EAGAIN;
 	sk_msg_init(msg);
 	skb_set_owner_r(skb, sk);
-	return sk_psock_skb_ingress_enqueue(skb, psock, sk, msg);
+	return sk_psock_skb_ingress_enqueue(skb, psock, sk, msg, off, len);
 }
 
 static int sk_psock_handle_skb(struct sk_psock *psock, struct sk_buff *skb,
@@ -597,7 +601,23 @@ static int sk_psock_handle_skb(struct sk_psock *psock, struct sk_buff *skb,
 			return -EAGAIN;
 		return skb_send_sock(psock->sk, skb, off, len);
 	}
-	return sk_psock_skb_ingress(psock, skb);
+	return sk_psock_skb_ingress(psock, skb, off, len);
+}
+
+static void sk_psock_get_skb_offset(struct sk_psock *psock,
+				    struct sk_buff *skb,
+				    u32 *off, u32 *len)
+{
+	struct strp_msg *stm;
+
+	if (psock->progs.stream_parser) {
+		stm = strp_msg(skb);
+		*len = stm->full_len;
+		*off = stm->offset;
+	} else {
+		*len = skb->len;
+		*off = 0;
+	}
 }
 
 static void sk_psock_backlog(struct work_struct *work)
@@ -619,8 +639,7 @@ static void sk_psock_backlog(struct work_struct *work)
 	}
 
 	while ((skb = skb_dequeue(&psock->ingress_skb))) {
-		len = skb->len;
-		off = 0;
+		sk_psock_get_skb_offset(psock, skb, &off, &len);
 start:
 		ingress = skb_bpf_ingress(skb);
 		skb_bpf_redirect_clear(skb);
@@ -919,6 +938,7 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 {
 	struct sock *sk_other;
 	int err = -EIO;
+	u32 off, len;
 
 	switch (verdict) {
 	case __SK_PASS:
@@ -937,7 +957,8 @@ static void sk_psock_verdict_apply(struct sk_psock *psock,
 		 * retrying later from workqueue.
 		 */
 		if (skb_queue_empty(&psock->ingress_skb)) {
-			err = sk_psock_skb_ingress_self(psock, skb);
+			sk_psock_get_skb_offset(psock, skb, &off, &len);
+			err = sk_psock_skb_ingress_self(psock, skb, off, len);
 		}
 		if (err < 0) {
 			spin_lock_bh(&psock->ingress_lock);
