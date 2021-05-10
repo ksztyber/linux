@@ -4735,6 +4735,14 @@ union bpf_attr {
  *		be zero-terminated except when **str_size** is 0.
  *
  *		Or **-EBUSY** if the per-CPU memory copy buffer is busy.
+ *
+ * long bpf_skb_get_parse_offset(struct sk_buff *skb)
+ * 	Description
+ *		Returns strparser's parsing offset within the specified *skb*.
+ *		This helper can only be run from the context of
+ *		**BPF_PROG_TYPE_SK_SKB** programs.
+ * 	Return
+ * 		The current offset within the *skb*.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -4903,6 +4911,7 @@ union bpf_attr {
 	FN(check_mtu),			\
 	FN(for_each_map_elem),		\
 	FN(snprintf),			\
+	FN(skb_get_parse_offset),	\
 	/* */
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
