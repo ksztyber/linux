@@ -4778,6 +4778,14 @@ union bpf_attr {
  * 		Execute close syscall for given FD.
  * 	Return
  * 		A syscall result.
+ *
+ * long bpf_skb_get_parse_offset(struct sk_buff *skb)
+ * 	Description
+ *		Returns strparser's parsing offset within the specified *skb*.
+ *		This helper can only be run from the context of
+ *		**BPF_PROG_TYPE_SK_SKB** programs.
+ * 	Return
+ * 		The current offset within the *skb*.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -4949,6 +4957,7 @@ union bpf_attr {
 	FN(sys_bpf),			\
 	FN(btf_find_by_name_kind),	\
 	FN(sys_close),			\
+	FN(skb_get_parse_offset),	\
 	/* */
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper

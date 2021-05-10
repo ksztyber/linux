@@ -3605,6 +3605,20 @@ static const struct bpf_func_proto sk_skb_adjust_room_proto = {
 	.arg4_type	= ARG_ANYTHING,
 };
 
+BPF_CALL_1(bpf_skb_get_parse_offset, struct sk_buff *, skb)
+{
+	struct strp_msg *stm = strp_msg(skb);
+
+	return stm->offset;
+}
+
+static const struct bpf_func_proto bpf_skb_get_parse_offset_proto = {
+	.func		= bpf_skb_get_parse_offset,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+};
+
 BPF_CALL_4(bpf_skb_adjust_room, struct sk_buff *, skb, s32, len_diff,
 	   u32, mode, u64, flags)
 {
@@ -7532,6 +7546,8 @@ sk_skb_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_sk_redirect_hash_proto;
 	case BPF_FUNC_sk_storage_get:
 		return &bpf_sk_storage_get_proto;
+	case BPF_FUNC_skb_get_parse_offset:
+		return &bpf_skb_get_parse_offset_proto;
 	case BPF_FUNC_perf_event_output:
 		return &bpf_skb_event_output_proto;
 #ifdef CONFIG_INET
