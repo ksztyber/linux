@@ -671,6 +671,8 @@ start:
 			kfree_skb(skb);
 	}
 end:
+	if (state->skb != NULL)
+		 schedule_work(work);
 	mutex_unlock(&psock->work_mutex);
 }
 
