@@ -651,6 +651,8 @@ start:
 							  len, ingress);
 			if (ret <= 0) {
 				if (ret == -EAGAIN) {
+					/* Restore the inress flag if present */
+					skb_bpf_set_redir(skb, NULL, ingress);
 					state->skb = skb;
 					state->len = len;
 					state->off = off;
